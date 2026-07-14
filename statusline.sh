@@ -119,7 +119,8 @@ if [ -n "$session_id" ]; then
 fi
 
 # ── Line 1：模型 | context 進度條 ────────────────────────────────────────────
-line1="${BOLD}${model} ${DIM}(${ctx_size})${RESET} ${DIM}|${RESET} ${ctx_bar}"
+# STATUSLINE_PREFIX：可選的行首裝飾（如 emoji），在 settings.json 的 command 裡設定
+line1="${BOLD}${STATUSLINE_PREFIX:-}${model} ${DIM}(${ctx_size})${RESET} ${DIM}|${RESET} ${ctx_bar}"
 
 # ── Line 2：專案 | git 分支 + 髒標記 | 增刪行 | 時間 ────────────────────────
 line2_parts=()
