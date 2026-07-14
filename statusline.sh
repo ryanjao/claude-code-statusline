@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Claude Code Status Line — 多家 AI 訂閱額度儀表板
+# Claude Code Status Line — 多家 AI 訂閱額度儀表板 v1.1
 # 顯示 Claude / Codex (ChatGPT) / Grok 的模型與額度狀態。
 # 安裝方式見 README.md。無任何外部依賴（只需 jq、curl）。
+
+command -v jq >/dev/null 2>&1 || { printf 'statusline: 需要 jq（brew install jq / apt install jq）\n'; exit 0; }
 
 input=$(cat)
 
@@ -74,12 +76,12 @@ if [ -n "$cwd" ] && git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
   git_branch=$(git -C "$cwd" symbolic-ref --short HEAD 2>/dev/null \
                || git -C "$cwd" rev-parse --short HEAD 2>/dev/null)
 
-  staged_stat=$(git -C "$cwd" diff --no-lock-index --cached --numstat 2>/dev/null \
+  staged_stat=$(git -C "$cwd" diff --cached --numstat 2>/dev/null \
                 | awk '{a+=$1; d+=$2} END {print a+0, d+0}')
   staged_added=$(echo "$staged_stat" | cut -d' ' -f1)
   staged_deleted=$(echo "$staged_stat" | cut -d' ' -f2)
 
-  unstaged_stat=$(git -C "$cwd" diff --no-lock-index --numstat 2>/dev/null \
+  unstaged_stat=$(git -C "$cwd" diff --numstat 2>/dev/null \
                   | awk '{a+=$1; d+=$2} END {print a+0, d+0}')
   unstaged_added=$(echo "$unstaged_stat" | cut -d' ' -f1)
   unstaged_deleted=$(echo "$unstaged_stat" | cut -d' ' -f2)
@@ -232,10 +234,16 @@ for chome in "$HOME/.codex" "$HOME"/.codex-*; do
     token=$(jq -r '.tokens.access_token // empty' "$chome/auth.json")
     acct_id=$(jq -r '.tokens.account_id // empty' "$chome/auth.json")
     if [ -n "$token" ]; then
-      http=$(curl -s -o "$cache.tmp" -w "%{http_code}" --max-time 3 \
+      # tmp 檔帶 PID 避免多個 session 同時寫入互搶；寫入前驗證回傳確實是預期 JSON
+      tmpf="$cache.tmp.$$"
+      http=$(curl -s -o "$tmpf" -w "%{http_code}" --connect-timeout 1 --max-time 3 \
         -H "Authorization: Bearer $token" -H "chatgpt-account-id: $acct_id" \
         "https://chatgpt.com/backend-api/wham/usage" 2>/dev/null)
-      if [ "$http" = "200" ]; then mv "$cache.tmp" "$cache"; else rm -f "$cache.tmp"; fi
+      if [ "$http" = "200" ] && jq -e '.rate_limit.primary_window.used_percent | numbers' "$tmpf" >/dev/null 2>&1; then
+        mv "$tmpf" "$cache"
+      else
+        rm -f "$tmpf"
+      fi
     fi
   fi
   [ -f "$cache" ] || continue
