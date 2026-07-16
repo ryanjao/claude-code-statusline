@@ -202,6 +202,16 @@ claude_5h=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // emp
 claude_5h_reset=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
 claude_7d=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
 claude_7d_reset=$(echo "$input" | jq -r '.rate_limits.seven_day.resets_at // empty')
+
+# ponytail: statusLine 是唯一拿得到 rate_limits 的 hook 管道，寫快取檔供
+# UserPromptSubmit hook（usage-threshold-check.sh）判斷 80% 門檻用。
+if [ -n "$claude_5h" ] || [ -n "$claude_7d" ]; then
+  mkdir -p "$HOME/.claude/cache" 2>/dev/null
+  jq -n --argjson five_hour "${claude_5h:-null}" --argjson seven_day "${claude_7d:-null}" \
+    '{five_hour: $five_hour, seven_day: $seven_day, updated_at: now}' \
+    > "$HOME/.claude/cache/claude-usage.json" 2>/dev/null
+fi
+
 if [ -n "$claude_5h" ] || [ -n "$claude_7d" ]; then
   quota_lines="${quota_lines}${BOLD}Claude${RESET} ${DIM}(${model})${RESET}\n"
   quota_lines="${quota_lines}$(quota_row current "$claude_5h" "$claude_5h_reset")\n"
