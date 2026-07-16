@@ -100,6 +100,9 @@ if [ -n "$cwd" ] && git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
   if [ "$total_added" -gt 0 ] || [ "$total_deleted" -gt 0 ]; then
     git_diff_str="${GREEN}+${total_added}${RESET}/${RED}-${total_deleted}${RESET}"
   fi
+
+  # 未 commit 檔數（含 untracked）：比單一 * 更能反映殘留累積程度
+  dirty_files=$(git -C "$cwd" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
 fi
 
 # ── 專案名稱 ──────────────────────────────────────────────────────────────────
@@ -124,11 +127,50 @@ fi
 # STATUSLINE_PREFIX：可選的行首裝飾（如 emoji），在 settings.json 的 command 裡設定
 line1="${BOLD}${STATUSLINE_PREFIX:-}${model} ${DIM}(${ctx_size})${RESET} ${DIM}|${RESET} ${ctx_bar}"
 
-# ── Line 2：專案 | git 分支 + 髒標記 | 增刪行 | 時間 ────────────────────────
+# ── SOP 版本（選裝：STATUSLINE_SOP_FILE 指向骨幹檔）─────────────────────────
+# 優先讀機器標誌行 <!-- sop-version: X.Y -->；沒有才退回「檔內第一個 vX.Y」
+# （散文語序不可靠，標誌行才是準據）。
+sop_ver=""
+if [ -n "${STATUSLINE_SOP_FILE:-}" ] && [ -f "$STATUSLINE_SOP_FILE" ]; then
+  sop_ver=$(grep -m1 -oE '<!-- sop-version: *[0-9]+\.[0-9]+ *-->' "$STATUSLINE_SOP_FILE" 2>/dev/null \
+            | grep -oE '[0-9]+\.[0-9]+')
+  [ -n "$sop_ver" ] && sop_ver="v${sop_ver}"
+  [ -z "$sop_ver" ] && sop_ver=$(grep -m1 -oE 'v[0-9]+\.[0-9]+' "$STATUSLINE_SOP_FILE" 2>/dev/null | head -1)
+fi
+
+# ── km-sync 健康（選裝）──────────────────────────────────────────────────────
+# 三態：最後一次 sync 失敗=紅字；成功但 >7 天前=暗色過期提醒（sync 停擺曾
+# 靜默 8 天）；JSON 讀不出來=KM health?（損毀不得當健康）。無檔=首次前，安靜。
+km_alert=""
+km_health_file="${XDG_STATE_HOME:-$HOME/.local/state}/km-sync/health.json"
+if [ -f "$km_health_file" ]; then
+  km_code=$(jq -r '.code' "$km_health_file" 2>/dev/null)
+  case "$km_code" in
+    0)
+      km_at=$(jq -r '.at // empty' "$km_health_file" 2>/dev/null)
+      km_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${km_at%%+*}" +%s 2>/dev/null \
+                 || date -d "$km_at" +%s 2>/dev/null)
+      if [ -n "$km_epoch" ]; then
+        km_age_d=$(( ( $(date +%s) - km_epoch ) / 86400 ))
+        [ "$km_age_d" -ge 7 ] && km_alert="${DIM}KM sync 過期 ${km_age_d}d${RESET}"
+      fi
+      ;;
+    ''|null) km_alert="${YELLOW}KM health?${RESET}" ;;
+    *)
+      km_err=$(jq -r '.error // empty' "$km_health_file" 2>/dev/null)
+      km_alert="${RED}KM sync✗(${km_err:-code ${km_code}})${RESET}"
+      ;;
+  esac
+fi
+
+# ── Line 2：專案 | git 分支 + 髒標記 | 增刪行 | 殘留檔數 | SOP | 警示 | 時間 ─
 line2_parts=()
 [ -n "$project_name" ] && line2_parts+=("${CYAN}${project_name}${RESET}")
 [ -n "$git_branch_str" ] && line2_parts+=("${git_branch_str}")
 [ -n "$git_diff_str" ] && line2_parts+=("${git_diff_str}")
+[ "${dirty_files:-0}" -gt 0 ] 2>/dev/null && line2_parts+=("${YELLOW}✚${dirty_files}檔${RESET}")
+[ -n "$sop_ver" ] && line2_parts+=("${DIM}SOP ${sop_ver}${RESET}")
+[ -n "$km_alert" ] && line2_parts+=("${km_alert}")
 
 if [ -n "$last_msg_time" ]; then
   line2_parts+=("${DIM}最後: ${last_msg_time}${RESET}")
